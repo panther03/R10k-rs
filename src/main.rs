@@ -1,5 +1,4 @@
 use std::fmt;
-use string_builder::Builder;
 
 struct PReg{
     num: u32,
@@ -12,9 +11,9 @@ impl PartialEq for PReg {
     }
 }
 
-impl ToString for PReg {
-    fn to_string(&self) -> String {
-        format!("PR#{} {}", self.num, if self.ready {"+"} else {" "}) 
+impl fmt::Display for PReg{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PR#{} {}", self.num, if self.ready {"+"} else {" "}) 
     }
 }
 
