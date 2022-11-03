@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, collections::HashMap, hash::Hash};
 
 struct PReg{
     num: u32,
@@ -11,7 +11,7 @@ impl PartialEq for PReg {
     }
 }
 
-impl fmt::Display for PReg{
+impl fmt::Display for PReg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PR#{} {}", self.num, if self.ready {"+"} else {" "}) 
     }
@@ -26,8 +26,8 @@ enum VReg {
 struct Inst {
     fu: u32,
     rt: VReg,
-    rs1: VReg,
-    rs2: VReg,
+    rs1: Option<VReg>,
+    rs2: Option<VReg>,
     delay: u32
 }
 
@@ -73,7 +73,7 @@ impl ROB {
     }
 }
 
-impl fmt::Display for ROB{
+impl fmt::Display for ROB {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, entry) in self.entries.iter().enumerate() {
             //output += (if i == self.head.try_into().unwrap() { 'h' } else { ' ' }) + (if i == self.tail.try_into().unwrap() { 't' } else { ' ' }) + ' ';
@@ -107,17 +107,53 @@ struct ResStation_entry {
     T2: PReg,
 }
 
+impl fmt::Display for ResStation_entry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} PR#{} {} {}\n",
+            self.fu_type,
+            if self.busy { "yes" } else { "no " },
+            self.T,
+            self.T1,
+            self.T2
+        )
+    }
+}
+
+struct OOOSim {
+    rob: ROB,
+    map_table: HashMap<String, PReg>,
+    free_list: Vec<u32>,
+    res_stations: Vec<ResStation_entry>,
+    trace: Vec<Inst>,
+    cycle: usize,
+    trace_ind: usize,
+}
+
+impl OOOSim {
+    fn new(trace: Vec<Inst>, num_p_regs: usize, max_rob_entries: usize) -> Self {
+        let rob: ROB = ROB::new(max_rob_entries);
+        let map_table: HashMap<String, PReg> = HashMap::new();
+        let free_list: Vec<u32> = Vec::new();
+        let res_stations: Vec<ResStation_entry> = Vec::new();
+        let cycle: usize = 1;
+        let trace_ind: usize = 0;
+        Self { rob, map_table, free_list, res_stations, trace, cycle, trace_ind }
+    }
+}
 
 fn main() {
+    let mut trace : Vec<Inst> = Vec::new();
+    // syntax looks like ass
+    trace.push(Inst { fu: 1, rt: VReg::F(2), rs1: None, rs2: Some(VReg::F(3)), delay: 2 })
+    //let mut sim : OOOSim = OOOSim::new();
 
-    let mut my_rob : ROB = ROB::new(6);
 
-    my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    my_rob.entries.push(ROBEntry::new(2,3, 7, 8));
-    my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    my_rob.tail = Some(3);
+    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
+    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
+    // my_rob.entries.push(ROBEntry::new(2,3, 7, 8));
+    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
+    // my_rob.tail = Some(3);
 
-    println!("{}", my_rob);
+    // println!("{}", my_rob);
 }
 
