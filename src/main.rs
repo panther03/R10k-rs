@@ -1,4 +1,6 @@
-use std::{fmt, collections::HashMap, hash::Hash};
+use std::{fmt, collections::HashMap};
+
+
 
 struct PReg{
     num: u32,
@@ -13,22 +15,54 @@ impl PartialEq for PReg {
 
 impl fmt::Display for PReg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PR#{} {}", self.num, if self.ready {"+"} else {" "}) 
+        write!(f, "PR#{}{}", self.num, if self.ready {"+"} else {" "}) 
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Eq, Hash, PartialEq)]
 enum VReg {
     F(u32),
     R(u32),
 }
 
+const ARCH_REGS: [VReg; 8] = [VReg::F(0), VReg::F(1), VReg::F(2), VReg::F(3),
+                              VReg::R(1), VReg::R(2), VReg::R(3), VReg::R(4)];
+
 struct Inst {
     fu: u32,
-    rt: VReg,
+    rt: Option<VReg>,
     rs1: Option<VReg>,
     rs2: Option<VReg>,
     delay: u32
+}
+
+fn parse_reg_str(r_s: &str) -> Option<VReg> {
+    let r_type: Option<char> = r_s.chars().nth(0);
+    let cnt = r_s.chars().count();
+    let r_s: String = r_s.chars().skip(if cnt < 1 { 0 } else { cnt - 1 }).collect();
+    let r_num = r_s.parse::<u32>();
+
+    match (r_type, r_num) {
+        (Some('f'), Ok(x)) => Some(VReg::F(x)),
+        (Some('r'), Ok(x)) => Some(VReg::R(x)),
+        _ => None
+    }
+}
+
+impl Inst {
+    fn new (fu: u32, rt_s: &str, rs1_s: &str, rs2_s: &str, delay: u32) -> Self {
+        let rt: Option<VReg> = parse_reg_str(rt_s);
+        let rs1: Option<VReg> = parse_reg_str(rs1_s);
+        let rs2: Option<VReg> = parse_reg_str(rs2_s);
+
+        Self {
+            fu,
+            rt,
+            rs1,
+            rs2,
+            delay
+        }
+    }
 }
 
 struct ROBEntry {
@@ -102,26 +136,35 @@ struct ResStation_entry {
     fu_num: u32,
     rs_num: u32,
     busy: bool,
-    T: u32,
-    T1: PReg,
-    T2: PReg,
+    T: Option<u32>,
+    T1: Option<PReg>,
+    T2: Option<PReg>,
 }
 
 impl fmt::Display for ResStation_entry {
+    // TODO: whole method is kind of ass
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {} PR#{} {} {}\n",
+        write!(f, "{} {}",
             self.fu_type,
             if self.busy { "yes" } else { "no " },
-            self.T,
-            self.T1,
-            self.T2
-        )
+        )?;
+
+        if let Some(T_val) = self.T { write!(f, "PR#{} ", T_val)?; }
+        else { write!(f, "    ")? };
+
+        if let Some(T1_val) = &self.T1 { write!(f, "PR#{} ", T1_val)?; }
+        else { write!(f, "    ")? };
+
+        if let Some(T2_val) = &self.T2{ write!(f, "PR#{} ", T2_val)?; }
+        else { write!(f, "    ")? };
+
+        Ok(())
     }
 }
 
 struct OOOSim {
     rob: ROB,
-    map_table: HashMap<String, PReg>,
+    map_table: HashMap<VReg, PReg>,
     free_list: Vec<u32>,
     res_stations: Vec<ResStation_entry>,
     trace: Vec<Inst>,
@@ -130,22 +173,64 @@ struct OOOSim {
 }
 
 impl OOOSim {
-    fn new(trace: Vec<Inst>, num_p_regs: usize, max_rob_entries: usize) -> Self {
+    fn new(trace: Vec<Inst>, num_p_regs: usize, max_rob_entries: usize, res_stations_desc: Vec<(u32, u32, u32)>) -> Self {
         let rob: ROB = ROB::new(max_rob_entries);
-        let map_table: HashMap<String, PReg> = HashMap::new();
-        let free_list: Vec<u32> = Vec::new();
-        let res_stations: Vec<ResStation_entry> = Vec::new();
+        let mut map_table: HashMap<VReg, PReg> = HashMap::new();
+        let mut free_list: Vec<u32> = Vec::new();
+        let mut res_stations: Vec<ResStation_entry> = Vec::new();
         let cycle: usize = 1;
         let trace_ind: usize = 0;
+
+        let mut p_reg_ind = 1;
+
+        if num_p_regs <= ARCH_REGS.len() {
+            panic!("Number of phyiscal registers must be greater than virtual registers!")
+        }
+
+        for reg in ARCH_REGS {
+            map_table.insert(reg, PReg { num: p_reg_ind, ready: true });
+            p_reg_ind += 1;
+        }
+
+        while p_reg_ind < (num_p_regs + 1).try_into().unwrap() {
+            free_list.push(p_reg_ind);
+            p_reg_ind += 1;
+        }
+
+        for &(fut,fun,rsn) in res_stations_desc.iter() {
+            res_stations.push(ResStation_entry { fu_type: fut, fu_num: fun, rs_num: rsn, busy: false, T: None, T1: None, T2: None })
+        }
+
         Self { rob, map_table, free_list, res_stations, trace, cycle, trace_ind }
     }
 }
 
 fn main() {
-    let mut trace : Vec<Inst> = Vec::new();
-    // syntax looks like ass
-    trace.push(Inst { fu: 1, rt: VReg::F(2), rs1: None, rs2: Some(VReg::F(3)), delay: 2 })
-    //let mut sim : OOOSim = OOOSim::new();
+    let trace : Vec<Inst> = vec![
+        Inst::new(1, "f2", ""  , "r2", 2),
+        Inst::new(2, "f0", "f2", "f3", 4),
+        Inst::new(1, "r1", ""  , "r1", 2),
+        Inst::new(2, "f2", "f1", "f0", 2),
+        Inst::new(0, "r1", ""  , "r1", 1),
+        Inst::new(0, "r2", ""  , "r2", 1),
+        Inst::new(1, ""  , "f2", "r1", 2),
+        Inst::new(0, "r4", "r1", "r3", 1),
+    ];
+    
+    let res_stations_desc : Vec<(u32,u32,u32)> = vec![
+        (0,0,0),
+        (1,0,0),
+        (1,1,0),
+        (2,0,0),
+        (2,1,0)
+    ];
+    
+    let sim : OOOSim = OOOSim::new(trace, 16, 8, res_stations_desc);
+
+    for res_station in sim.res_stations {
+        println!("{}", res_station);
+    }
+    
 
 
     // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
