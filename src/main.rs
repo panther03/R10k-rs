@@ -1,7 +1,7 @@
-use std::{fmt, collections::HashMap};
+use std::{fmt, collections::{HashMap, VecDeque}};
 
 
-
+#[derive(Clone, Copy)]
 struct PReg{
     num: u32,
     ready: bool
@@ -19,10 +19,19 @@ impl fmt::Display for PReg {
     }
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Clone, Copy)]
 enum VReg {
     F(u32),
     R(u32),
+}
+
+impl fmt::Display for VReg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VReg::F(N) => write!(f, "f{N}"),
+            VReg::R(N) => write!(f, "r{N}")
+        }
+    }
 }
 
 const ARCH_REGS: [VReg; 8] = [VReg::F(0), VReg::F(1), VReg::F(2), VReg::F(3),
@@ -68,8 +77,8 @@ impl Inst {
 struct ROBEntry {
     inst_ind: usize,
     rs_ind: usize,
-    T: u32, 
-    Told: u32,
+    T: Option<u32>, 
+    Told: Option<u32>,
     S: u32,
     X: u32,
     C: u32,
@@ -77,7 +86,7 @@ struct ROBEntry {
 }
 
 impl ROBEntry {
-    fn new(inst_ind: usize, rs_ind: usize, T: u32, Told: u32) -> Self {
+    fn new(inst_ind: usize, rs_ind: usize, T: Option<u32>, Told: Option<u32>) -> Self {
         Self {
             inst_ind, rs_ind, T, Told,
             S: 0,
@@ -109,6 +118,7 @@ impl ROB {
 
 impl fmt::Display for ROB {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        dbg!(self.head);
         for (i, entry) in self.entries.iter().enumerate() {
             //output += (if i == self.head.try_into().unwrap() { 'h' } else { ' ' }) + (if i == self.tail.try_into().unwrap() { 't' } else { ' ' }) + ' ';
             if i == self.head { write!(f, "h")?; } else { write!(f, " ")?; }
@@ -119,8 +129,14 @@ impl fmt::Display for ROB {
             } else { write!(f, " ")? };
 
             write!(f, "  ")?;
-            if entry.T    != 0 { write!(f, "PR#{} ", entry.T)?; } else { write!(f, "PR#   ")?; }
-            if entry.Told != 0 { write!(f, "PR#{} ", entry.Told)?; } else { write!(f, "PR#   ")?; }
+
+            // same scuffed shit
+            if let Some(t) = entry.T { 
+                if t != 0 { write!(f, "PR#{} ", t)?; } else { write!(f, "PR#  ")?; }; 
+            } else { write!(f, "PR#  ")? };
+            if let Some(told) = entry.Told { 
+                if told != 0 { write!(f, "PR#{} ", told)?; } else { write!(f, "PR#  ")?; }; 
+            } else { write!(f, "PR#  ")? };
             if entry.S    != 0 { write!(f, "{} ", entry.S)?; } else { write!(f, "  ")?; }
             if entry.X    != 0 { write!(f, "{} ", entry.X)?; } else { write!(f, "  ")?; }
             if entry.C    != 0 { write!(f, "{} ", entry.C)?; } else { write!(f, "  ")?; }
@@ -152,10 +168,10 @@ impl fmt::Display for ResStation_entry {
         if let Some(T_val) = self.T { write!(f, "PR#{} ", T_val)?; }
         else { write!(f, "    ")? };
 
-        if let Some(T1_val) = &self.T1 { write!(f, "PR#{} ", T1_val)?; }
+        if let Some(T1_val) = &self.T1 { write!(f, "{} ", T1_val)?; }
         else { write!(f, "    ")? };
 
-        if let Some(T2_val) = &self.T2{ write!(f, "PR#{} ", T2_val)?; }
+        if let Some(T2_val) = &self.T2{ write!(f, "{} ", T2_val)?; }
         else { write!(f, "    ")? };
 
         Ok(())
@@ -165,10 +181,10 @@ impl fmt::Display for ResStation_entry {
 struct OOOSim {
     rob: ROB,
     map_table: HashMap<VReg, PReg>,
-    free_list: Vec<u32>,
+    free_list: VecDeque<u32>,
     res_stations: Vec<ResStation_entry>,
     trace: Vec<Inst>,
-    cycle: usize,
+    cycle: u32,
     trace_ind: usize,
 }
 
@@ -176,9 +192,9 @@ impl OOOSim {
     fn new(trace: Vec<Inst>, num_p_regs: usize, max_rob_entries: usize, res_stations_desc: Vec<(u32, u32, u32)>) -> Self {
         let rob: ROB = ROB::new(max_rob_entries);
         let mut map_table: HashMap<VReg, PReg> = HashMap::new();
-        let mut free_list: Vec<u32> = Vec::new();
+        let mut free_list: VecDeque<u32> = VecDeque::new();
         let mut res_stations: Vec<ResStation_entry> = Vec::new();
-        let cycle: usize = 1;
+        let cycle: u32 = 1;
         let trace_ind: usize = 0;
 
         let mut p_reg_ind = 1;
@@ -193,7 +209,7 @@ impl OOOSim {
         }
 
         while p_reg_ind < (num_p_regs + 1).try_into().unwrap() {
-            free_list.push(p_reg_ind);
+            free_list.push_back(p_reg_ind);
             p_reg_ind += 1;
         }
 
@@ -203,6 +219,205 @@ impl OOOSim {
 
         Self { rob, map_table, free_list, res_stations, trace, cycle, trace_ind }
     }
+
+    fn Retire(&mut self) {
+        // find first instruction that has not retired,
+        // if it's completed, retire it, otherwise,
+        // it must be out of order so we will not retire anything.
+        for inst in self.rob.entries.iter_mut() {
+            if inst.R == 0 {
+                if inst.C != 0 {
+                    inst.R = self.cycle;
+                    self.rob.head += 1;
+                    if let Some(told) = inst.Told {
+                        if told != 0 {
+                            self.free_list.push_back(told);
+                        }
+                    } 
+                }
+            }
+        }
+    }
+
+    fn Complete(&mut self) {
+        // find first instruction that has executed, then complete it
+        for inst in self.rob.entries.iter_mut() {
+            if let Some(trace_inst) = self.trace.get(inst.inst_ind) {
+                if trace_inst.delay == 0 && inst.C == 0 {
+                    inst.C = self.cycle;
+
+                    for preg in self.map_table.values_mut() {
+                        if let Some(t) = inst.T {
+                            if preg.num == t {
+                                preg.ready = true;
+                            }
+                        }
+                    }
+
+                    for rs in self.res_stations.iter_mut() {
+                        if let Some(T1_val) = &mut rs.T1 {
+                            if let Some(t) = inst.T {
+                                if T1_val.num == t {
+                                    T1_val.ready = true;
+                                }
+                            }
+                        }
+
+                        if let Some(T2_val) = &mut rs.T2 {
+                            if let Some(t) = inst.T {
+                                if T2_val.num == t {
+                                    T2_val.ready = true;
+                                }
+                            }
+                        }
+                    }
+
+                    return
+                }
+            }
+        }
+    }
+
+    fn Execute(&mut self) {
+        let mut fu_busy: Vec<(u32,u32)> = Vec::new();
+        // find all instructions waiting to execute, if the functional unit is not busy
+        for inst in self.rob.entries.iter_mut() {
+            let mut inst_rs = &mut self.res_stations[inst.rs_ind];
+            let mut inst_t = &mut self.trace[inst.inst_ind];
+            
+            if (inst.S != 0) && (inst.S != self.cycle) {
+                if inst.X == 0 {
+                    inst.X = self.cycle;
+                    inst_rs.busy = false;
+                    inst_rs.T = None;
+                    inst_rs.T1 = None;
+                    inst_rs.T2 = None;
+                }
+            }
+
+            if inst_t.delay > 0 {
+                let fu_info: (u32,u32) = (inst_rs.fu_type, inst_rs.fu_num);
+                if !fu_busy.contains(&fu_info) {
+                    inst_t.delay -= 1;
+                    fu_busy.push(fu_info);
+                }
+            }
+        }
+    }
+
+    fn Issue(&mut self) {
+        for inst in self.rob.entries.iter_mut() {
+            if inst.S == 0 {
+                let inst_rs = &self.res_stations[inst.rs_ind];
+                match (&inst_rs.T1,&inst_rs.T2) {
+                    (Some(T1_val),Some(T2_val)) => if (T1_val.ready && T2_val.ready) { inst.S = self.cycle; return },
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    fn Dispatch(&mut self) {
+        // Some fail-early style conditions
+
+        // any more instructions to process?
+        if (self.trace_ind >= self.trace.len()) {
+            return
+        }
+
+        if let Some(tail_val) = self.rob.tail {
+            // structural hazard: rob full, no dispatch to be done
+            if (tail_val + 1) > (self.rob.max_entries + self.rob.head) {
+                return
+            }
+        }
+
+        let new_inst = &self.trace[self.trace_ind];
+
+        // structural hazard: free list empty, can't get a new preg
+        // only a problem if new inst has a destination register
+        if (new_inst.rt != None) && (self.free_list.len() == 0) {
+            return
+        }
+
+        let T = self.free_list[0];
+
+        let mut all_rss_busy = true;
+        let mut rs_ind = 0;
+
+        for (i, rs) in self.res_stations.iter_mut().enumerate() {
+            if (rs.fu_type == new_inst.fu) && !rs.busy {
+                all_rss_busy = false;
+                rs.busy = true;
+                rs.T = if new_inst.rt == None { Some(T) } else { None };
+                rs.T1 = match &new_inst.rs1 {
+                    // this copies the value from the hashmap
+                    Some(rs1_val) => { Some(self.map_table[rs1_val]) },
+                    None => None
+                };
+                rs.T2 = match &new_inst.rs2 {
+                    // this copies the value from the hashmap
+                    Some(rs2_val) => { Some(self.map_table[rs2_val]) },
+                    None => None
+                };
+                rs_ind = i;
+                break;
+            }
+        }
+
+        // structural hazard: no reservation stations available
+        if all_rss_busy {
+            return
+        }
+
+        let Told: Option<u32>;
+        let Tnew: Option<u32>;
+        match &new_inst.rt {
+            Some(rt_val) => {
+                self.free_list.pop_front();
+                Told = Some(self.map_table[rt_val].num);
+                Tnew = Some(T);
+
+                self.map_table.insert(*rt_val, PReg { num: T, ready: false });
+            }
+            None => {
+                Told = None;
+                Tnew = None;
+            }
+        }
+
+        self.rob.entries.push(ROBEntry::new(self.trace_ind, rs_ind, Tnew, Told));
+        self.rob.tail = match self.rob.tail {
+            Some(x) => Some(x + 1),
+            None => Some(0),
+        };
+
+        self.trace_ind += 1;
+        
+    }
+
+    fn Sim(&mut self, cycles: u32) {
+        let cycle_start = self.cycle;
+        while self.cycle <= cycle_start + cycles {
+            self.Retire();
+            self.Complete();
+            self.Execute();
+            self.Issue();
+            self.Dispatch();
+
+            self.cycle += 1;
+        }
+        println!("{}", self.rob);
+        for rs in &self.res_stations {
+            println!("{}", rs);
+        }
+        println!("vreg | preg");
+        for (k,v) in &self.map_table {
+            println!("{} | {}", k, v);
+        }
+        println!("{:#?}", self.free_list);
+    }
+
 }
 
 fn main() {
@@ -225,11 +440,19 @@ fn main() {
         (2,1,0)
     ];
     
-    let sim : OOOSim = OOOSim::new(trace, 16, 8, res_stations_desc);
+    let mut sim : OOOSim = OOOSim::new(trace, 16, 8, res_stations_desc);
 
-    for res_station in sim.res_stations {
-        println!("{}", res_station);
-    }
+    //for res_station in sim.res_stations {
+//        println!("{}", res_station);
+    //}
+
+    sim.Sim(1);
+    sim.Sim(1);
+    sim.Sim(1);
+    //sim.Sim(1);
+    //sim.Sim(1);
+    //sim.Sim(1);
+
     
 
 
