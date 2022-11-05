@@ -448,7 +448,7 @@ fn main() {
 //        println!("{}", res_station);
     //}
 
-    sim.Sim(10);
+    sim.Sim(20);
     //sim.Sim(1);
     //sim.Sim(1);
     //sim.Sim(1);

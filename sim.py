@@ -256,5 +256,5 @@ if __name__ == "__main__":
              Inst(0,"r4","r1","r3",1)]
             
     sim = OOOSim(trace, params, res_stations_desc)
-    sim.Sim(10)
+    sim.Sim(20)
 
