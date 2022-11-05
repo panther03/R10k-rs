@@ -19,7 +19,7 @@ impl fmt::Display for PReg {
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
 enum VReg {
     F(u32),
     R(u32),
@@ -118,7 +118,6 @@ impl ROB {
 
 impl fmt::Display for ROB {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        dbg!(self.head);
         for (i, entry) in self.entries.iter().enumerate() {
             //output += (if i == self.head.try_into().unwrap() { 'h' } else { ' ' }) + (if i == self.tail.try_into().unwrap() { 't' } else { ' ' }) + ' ';
             if i == self.head { write!(f, "h")?; } else { write!(f, " ")?; }
@@ -141,7 +140,7 @@ impl fmt::Display for ROB {
             if entry.X    != 0 { write!(f, "{} ", entry.X)?; } else { write!(f, "  ")?; }
             if entry.C    != 0 { write!(f, "{} ", entry.C)?; } else { write!(f, "  ")?; }
             if entry.R    != 0 { write!(f, "{} ", entry.R)?; } else { write!(f, "  ")?; }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -160,7 +159,7 @@ struct ResStation_entry {
 impl fmt::Display for ResStation_entry {
     // TODO: whole method is kind of ass
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}",
+        write!(f, "{} {} ",
             self.fu_type,
             if self.busy { "yes" } else { "no " },
         )?;
@@ -235,6 +234,7 @@ impl OOOSim {
                         }
                     } 
                 }
+                return
             }
         }
     }
@@ -293,15 +293,15 @@ impl OOOSim {
                     inst_rs.T1 = None;
                     inst_rs.T2 = None;
                 }
-            }
 
-            if inst_t.delay > 0 {
-                let fu_info: (u32,u32) = (inst_rs.fu_type, inst_rs.fu_num);
-                if !fu_busy.contains(&fu_info) {
-                    inst_t.delay -= 1;
-                    fu_busy.push(fu_info);
+                if inst_t.delay > 0 {
+                    let fu_info: (u32,u32) = (inst_rs.fu_type, inst_rs.fu_num);
+                    if !fu_busy.contains(&fu_info) {
+                        inst_t.delay -= 1;
+                        fu_busy.push(fu_info);
+                    }
                 }
-            }
+            }            
         }
     }
 
@@ -310,6 +310,7 @@ impl OOOSim {
             if inst.S == 0 {
                 let inst_rs = &self.res_stations[inst.rs_ind];
                 match (&inst_rs.T1,&inst_rs.T2) {
+                    (None,_) | (_, None)=> { inst.S = self.cycle; return }
                     (Some(T1_val),Some(T2_val)) => if (T1_val.ready && T2_val.ready) { inst.S = self.cycle; return },
                     _ => (),
                 }
@@ -349,7 +350,7 @@ impl OOOSim {
             if (rs.fu_type == new_inst.fu) && !rs.busy {
                 all_rss_busy = false;
                 rs.busy = true;
-                rs.T = if new_inst.rt == None { Some(T) } else { None };
+                rs.T = if new_inst.rt == None { None } else { Some(T) };
                 rs.T1 = match &new_inst.rs1 {
                     // this copies the value from the hashmap
                     Some(rs1_val) => { Some(self.map_table[rs1_val]) },
@@ -386,6 +387,7 @@ impl OOOSim {
             }
         }
 
+
         self.rob.entries.push(ROBEntry::new(self.trace_ind, rs_ind, Tnew, Told));
         self.rob.tail = match self.rob.tail {
             Some(x) => Some(x + 1),
@@ -398,7 +400,7 @@ impl OOOSim {
 
     fn Sim(&mut self, cycles: u32) {
         let cycle_start = self.cycle;
-        while self.cycle <= cycle_start + cycles {
+        while self.cycle < cycle_start + cycles {
             self.Retire();
             self.Complete();
             self.Execute();
@@ -424,7 +426,7 @@ fn main() {
     let trace : Vec<Inst> = vec![
         Inst::new(1, "f2", ""  , "r2", 2),
         Inst::new(2, "f0", "f2", "f3", 4),
-        Inst::new(1, "r1", ""  , "r1", 2),
+        Inst::new(1, "f1", ""  , "r1", 2),
         Inst::new(2, "f2", "f1", "f0", 2),
         Inst::new(0, "r1", ""  , "r1", 1),
         Inst::new(0, "r2", ""  , "r2", 1),
@@ -446,9 +448,7 @@ fn main() {
 //        println!("{}", res_station);
     //}
 
-    sim.Sim(1);
-    sim.Sim(1);
-    sim.Sim(1);
+    sim.Sim(10);
     //sim.Sim(1);
     //sim.Sim(1);
     //sim.Sim(1);
