@@ -1,2 +1,6 @@
 /target
 r10k.trace
+/ada/r10k/obj/
+/ada/r10k/bin/
+/ada/r10k/alire/
+/ada/r10k/config/

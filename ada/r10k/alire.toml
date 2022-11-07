@@ -1,0 +1,9 @@
+name = "r10k"
+description = "Shiny new project"
+version = "0.1.0-dev"
+
+authors = ["Julien de Castelnau"]
+maintainers = ["Julien de Castelnau <tripod320@gmail.com>"]
+maintainers-logins = ["panther03"]
+
+executables = ["r10k"]
