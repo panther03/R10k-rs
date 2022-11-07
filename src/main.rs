@@ -1,4 +1,5 @@
-use std::{fmt, collections::{HashMap, VecDeque}};
+use std::{fmt, fs::File, collections::{HashMap, VecDeque}};
+use std::io::{self, BufRead};
 
 
 #[derive(Clone, Copy)]
@@ -37,6 +38,7 @@ impl fmt::Display for VReg {
 const ARCH_REGS: [VReg; 8] = [VReg::F(0), VReg::F(1), VReg::F(2), VReg::F(3),
                               VReg::R(1), VReg::R(2), VReg::R(3), VReg::R(4)];
 
+#[derive(Debug)]
 struct Inst {
     fu: u32,
     rt: Option<VReg>,
@@ -46,7 +48,8 @@ struct Inst {
 }
 
 fn parse_reg_str(r_s: &str) -> Option<VReg> {
-    let r_type: Option<char> = r_s.chars().nth(0);
+    // first character (indicates register type)
+    let r_type: Option<char> = r_s.chars().next();
     let cnt = r_s.chars().count();
     let r_s: String = r_s.chars().skip(if cnt < 1 { 0 } else { cnt - 1 }).collect();
     let r_num = r_s.parse::<u32>();
@@ -71,6 +74,19 @@ impl Inst {
             rs2,
             delay
         }
+    }
+
+    fn from_trace_line(line: &str) -> Result<Self, String> {
+        let mut line_split = line.split(" ");
+        if line_split.clone().count() != 5 {
+            return Err(String::from("Line improperly formatted."));
+        }
+        let fu: u32 = line_split.next().unwrap().parse::<u32>().unwrap();
+        let rt: &str = line_split.next().unwrap();
+        let rs1: &str = line_split.next().unwrap();
+        let rs2: &str = line_split.next().unwrap();
+        let delay: u32 = line_split.next().unwrap().parse::<u32>().unwrap();
+        Ok(Self::new(fu, rt, rs1, rs2, delay))
     }
 }
 
@@ -335,13 +351,21 @@ impl OOOSim {
 
         let new_inst = &self.trace[self.trace_ind];
 
-        // structural hazard: free list empty, can't get a new preg
-        // only a problem if new inst has a destination register
-        if (new_inst.rt != None) && (self.free_list.len() == 0) {
-            return
+        let T: Option<u32>;
+        if new_inst.rt == None {
+            // if no target register, T is None (don't care)
+            T = None;
+        } else {
+            // structural hazard: free list empty, can't get a new preg
+            // only a problem if new inst has a destination register
+            if self.free_list.len() == 0 {
+                return;
+            }
+            // not empty, so grab one off the top.
+            T = Some(self.free_list[0]);
         }
 
-        let T = self.free_list[0];
+        
 
         let mut all_rss_busy = true;
         let mut rs_ind = 0;
@@ -350,7 +374,7 @@ impl OOOSim {
             if (rs.fu_type == new_inst.fu) && !rs.busy {
                 all_rss_busy = false;
                 rs.busy = true;
-                rs.T = if new_inst.rt == None { None } else { Some(T) };
+                rs.T = T;
                 rs.T1 = match &new_inst.rs1 {
                     // this copies the value from the hashmap
                     Some(rs1_val) => { Some(self.map_table[rs1_val]) },
@@ -377,9 +401,11 @@ impl OOOSim {
             Some(rt_val) => {
                 self.free_list.pop_front();
                 Told = Some(self.map_table[rt_val].num);
-                Tnew = Some(T);
+                Tnew = T;
 
-                self.map_table.insert(*rt_val, PReg { num: T, ready: false });
+                // we expect T to be Some(X) because it is only None when new_inst.rt is None
+                // TODO: unsafe?
+                self.map_table.insert(*rt_val, PReg { num: T.unwrap(), ready: false });
             }
             None => {
                 Told = None;
@@ -423,16 +449,23 @@ impl OOOSim {
 }
 
 fn main() {
-    let trace : Vec<Inst> = vec![
-        Inst::new(1, "f2", ""  , "r2", 2),
-        Inst::new(2, "f0", "f2", "f3", 4),
-        Inst::new(1, "f1", ""  , "r1", 2),
-        Inst::new(2, "f2", "f1", "f0", 2),
-        Inst::new(0, "r1", ""  , "r1", 1),
-        Inst::new(0, "r2", ""  , "r2", 1),
-        Inst::new(1, ""  , "f2", "r1", 2),
-        Inst::new(0, "r4", "r1", "r3", 1),
-    ];
+    // let trace : Vec<Inst> = vec![
+    //     Inst::new(1, "f2", ""  , "r2", 2),
+    //     Inst::new(2, "f0", "f2", "f3", 4),
+    //     Inst::new(1, "f1", ""  , "r1", 2),
+    //     Inst::new(2, "f2", "f1", "f0", 2),
+    //     Inst::new(0, "r1", ""  , "r1", 1),
+    //     Inst::new(0, "r2", ""  , "r2", 1),
+    //     Inst::new(1, ""  , "f2", "r1", 2),
+    //     Inst::new(0, "r4", "r1", "r3", 1),
+    // ];
+
+    let trace_iter = io::BufReader::new(File::open("r10k.trace").unwrap()).lines();
+    let trace: Vec<Inst> = trace_iter
+        .filter_map(Result::ok)
+        .map(|x| Inst::from_trace_line(&x))
+        .filter_map(Result::ok)
+        .collect();
     
     let res_stations_desc : Vec<(u32,u32,u32)> = vec![
         (0,0,0),
@@ -444,24 +477,6 @@ fn main() {
     
     let mut sim : OOOSim = OOOSim::new(trace, 16, 8, res_stations_desc);
 
-    //for res_station in sim.res_stations {
-//        println!("{}", res_station);
-    //}
-
-    sim.Sim(20);
-    //sim.Sim(1);
-    //sim.Sim(1);
-    //sim.Sim(1);
-
-    
-
-
-    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    // my_rob.entries.push(ROBEntry::new(2,3, 7, 8));
-    // my_rob.entries.push(ROBEntry::new(2,3, 6, 0));
-    // my_rob.tail = Some(3);
-
-    // println!("{}", my_rob);
+    sim.Sim(1000);
 }
 

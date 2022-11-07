@@ -1,8 +1,4 @@
-from calendar import c
 from dataclasses import dataclass
-from re import I
-from tokenize import Name
-from typing import Set, NamedTuple
 
 @dataclass
 class PReg:
@@ -80,13 +76,7 @@ class OOOSim:
         self.trace = trace
 
         self.cycle = 1
-        self.trace_ind = 0        
-
-        #regs = set()
-        #for inst in trace:
-        #    regs.add(inst.rt)
-        #    regs.add(inst.rs1)
-        #    regs.add(inst.rs2)
+        self.trace_ind = 0
 
         regs = ["f0","f1","f2","f3","r1","r2","r3","r4"]
 
@@ -159,7 +149,6 @@ class OOOSim:
                     inst_rs.T2 = None
             
                 if inst_t.delay > 0:
-                    print(fu_busy)
                     fu_info = (inst_rs.fu_type,inst_rs.fu_num)
                     if fu_info not in fu_busy:
                         inst_t.delay -= 1
@@ -184,12 +173,18 @@ class OOOSim:
 
         new_inst = self.trace[self.trace_ind]
 
-        # stuctural hazard: free list empty, can't get new preg
-        # only a problem if new inst has a destination register
-        if new_inst.rt and (len(self.free_list) == 0):
-            return
-
-        T = self.free_list[0]
+        
+        if new_inst.rt:
+            # stuctural hazard: free list empty, can't get new preg
+            # only a problem if new inst has a destination register
+            if (len(self.free_list) == 0):
+                return
+            # not empty, so grab one off the top.
+            T = self.free_list[0]
+        else:
+            # if no target register, T is None (don't care)
+            T = None
+            
     
         all_rss_busy = True
         rs_ind = 0
@@ -197,7 +192,7 @@ class OOOSim:
             if (rs.fu_type == new_inst.fu) and not rs.busy:
                 all_rss_busy = False
                 rs.busy = True
-                rs.T = T if new_inst.rt else None
+                rs.T = T
                 rs.T1 = self.map_table[new_inst.rs1] if new_inst.rs1 else None
                 rs.T2 = self.map_table[new_inst.rs2] if new_inst.rs2 else None
                 rs_ind = i
@@ -208,15 +203,12 @@ class OOOSim:
             return
 
         if new_inst.rt:
-            print(new_inst.rt)
             self.free_list.pop(0)
             Told = self.map_table[new_inst.rt].reg
         else:
             T = None
             Told = None
-        
-        print(T)
-        print(Told)
+
         self.rob.entries.append(ROB_entry(self.trace_ind, rs_ind, T, Told))
         self.rob.tail += 1
 
@@ -235,17 +227,29 @@ class OOOSim:
             self.Dispatch()
             
             self.cycle += 1
-        print(self.rob)
-        for rs in self.res_stations:
-            print(rs)
-        print(self.map_table)
-        print(self.free_list)
+        #print(self.rob)
+        #for rs in self.res_stations:
+#            print(rs)
+#        print(self.map_table)
+#        print(self.free_list)
+
+def parse_inst(inst_line: str) -> Inst:
+    inst_line_l = inst_line.split(" ")
+    assert(len(inst_line_l) == 5)
+    fu = int(inst_line_l[0])
+    rt = inst_line_l[1] if inst_line_l[1] != "X" else ""
+    rs1 = inst_line_l[2] if inst_line_l[2] != "X" else ""
+    rs2 = inst_line_l[3] if inst_line_l[3] != "X" else ""
+    delay = int(inst_line_l[4])
+    return Inst(fu, rt, rs1, rs2, delay)
+
 
 
 if __name__ == "__main__":
     params = {"max_rob_entries": 8,
               "num_p_regs": 16}
     res_stations_desc = [(0,0,0),(1,0,0),(1,1,0),(2,0,0),(2,1,0)]
+    """ 
     trace = [Inst(1,"f2","","r2",2),
              Inst(2,"f0","f2","f3",4),
              Inst(1,"f1","","r1",2),
@@ -254,7 +258,14 @@ if __name__ == "__main__":
              Inst(0,"r2","","r2",1),
              Inst(1,"","f2","r1",2),
              Inst(0,"r4","r1","r3",1)]
+    """
+
+    trace = []
+
+    with open("r10k.trace") as trace_f:
+        for line in trace_f:
+            trace.append(parse_inst(line))
             
     sim = OOOSim(trace, params, res_stations_desc)
-    sim.Sim(20)
+    sim.Sim(1000)
 
