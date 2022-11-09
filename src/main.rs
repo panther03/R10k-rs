@@ -16,7 +16,7 @@ impl PartialEq for PReg {
 
 impl fmt::Display for PReg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PR#{}{}", self.num, if self.ready {"+"} else {" "}) 
+        write!(f, "PR#{:02}{}", self.num, if self.ready {"+"} else {" "}) 
     }
 }
 
@@ -29,8 +29,8 @@ enum VReg {
 impl fmt::Display for VReg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VReg::F(N) => write!(f, "f{N}"),
-            VReg::R(N) => write!(f, "r{N}")
+            VReg::F(n) => write!(f, "f{n}"),
+            VReg::R(n) => write!(f, "r{n}")
         }
     }
 }
@@ -77,7 +77,7 @@ impl Inst {
     }
 
     fn from_trace_line(line: &str) -> Result<Self, String> {
-        let mut line_split = line.split(" ");
+        let mut line_split = line.split(' ');
         if line_split.clone().count() != 5 {
             return Err(String::from("Line improperly formatted."));
         }
@@ -90,11 +90,12 @@ impl Inst {
     }
 }
 
+#[allow(non_snake_case)]
 struct ROBEntry {
     inst_ind: usize,
     rs_ind: usize,
-    T: Option<u32>, 
-    Told: Option<u32>,
+    t: Option<u32>, 
+    t_old: Option<u32>,
     S: u32,
     X: u32,
     C: u32,
@@ -102,9 +103,9 @@ struct ROBEntry {
 }
 
 impl ROBEntry {
-    fn new(inst_ind: usize, rs_ind: usize, T: Option<u32>, Told: Option<u32>) -> Self {
+    fn new(inst_ind: usize, rs_ind: usize, t: Option<u32>, t_old: Option<u32>) -> Self {
         Self {
-            inst_ind, rs_ind, T, Told,
+            inst_ind, rs_ind, t, t_old,
             S: 0,
             X: 0,
             C: 0,
@@ -113,6 +114,7 @@ impl ROBEntry {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 struct ROB {
     entries: Vec<ROBEntry>,
     max_entries: usize,
@@ -124,7 +126,7 @@ impl ROB {
     fn new(rob_size: usize) -> Self {
         let entries: Vec<ROBEntry> = Vec::with_capacity(rob_size);
         Self {
-            entries: entries,
+            entries,
             max_entries: rob_size,
             head: 0,
             tail: None, // tail starts off in an uninitialized state
@@ -135,23 +137,25 @@ impl ROB {
 impl fmt::Display for ROB {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, entry) in self.entries.iter().enumerate() {
-            //output += (if i == self.head.try_into().unwrap() { 'h' } else { ' ' }) + (if i == self.tail.try_into().unwrap() { 't' } else { ' ' }) + ' ';
             if i == self.head { write!(f, "h")?; } else { write!(f, " ")?; }
-        
-            // TODO: make else conditons all one?
-            if let Some(head) = self.tail { 
-                if head == i { write!(f, "t")?; } else { write!(f, " ")? }; 
-            } else { write!(f, " ")? };
+    
+            match self.tail {
+                Some(tail) if i == tail => { write!(f, "t")?; }
+                _       => { write!(f, " ")?; }
+            }
 
             write!(f, "  ")?;
 
-            // same scuffed shit
-            if let Some(t) = entry.T { 
-                if t != 0 { write!(f, "PR#{} ", t)?; } else { write!(f, "PR#  ")?; }; 
-            } else { write!(f, "PR#  ")? };
-            if let Some(told) = entry.Told { 
-                if told != 0 { write!(f, "PR#{} ", told)?; } else { write!(f, "PR#  ")?; }; 
-            } else { write!(f, "PR#  ")? };
+            let mut print_preg = |reg| {
+                match reg {
+                    Some(0) | None => { write!(f, "PR#   ") }
+                    Some(reg_val)     => { write!(f, "PR#{:02} ", reg_val) }
+                }    
+            };
+            
+            print_preg(entry.t)?;
+            print_preg(entry.t_old)?;
+                    
             if entry.S    != 0 { write!(f, "{} ", entry.S)?; } else { write!(f, "  ")?; }
             if entry.X    != 0 { write!(f, "{} ", entry.X)?; } else { write!(f, "  ")?; }
             if entry.C    != 0 { write!(f, "{} ", entry.C)?; } else { write!(f, "  ")?; }
@@ -162,17 +166,18 @@ impl fmt::Display for ROB {
     }
 }
 
-struct ResStation_entry {
+struct ResStationEntry {
     fu_type: u32,
     fu_num: u32,
+    #[allow(dead_code)]
     rs_num: u32,
     busy: bool,
-    T: Option<u32>,
-    T1: Option<PReg>,
-    T2: Option<PReg>,
+    t: Option<u32>,
+    t1: Option<PReg>,
+    t2: Option<PReg>,
 }
 
-impl fmt::Display for ResStation_entry {
+impl fmt::Display for ResStationEntry {
     // TODO: whole method is kind of ass
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} ",
@@ -180,14 +185,14 @@ impl fmt::Display for ResStation_entry {
             if self.busy { "yes" } else { "no " },
         )?;
 
-        if let Some(T_val) = self.T { write!(f, "PR#{} ", T_val)?; }
-        else { write!(f, "    ")? };
+        if let Some(t_val) = self.t { write!(f, "PR#{:02} ", t_val)?; }
+        else { write!(f, "##### ")? };
 
-        if let Some(T1_val) = &self.T1 { write!(f, "{} ", T1_val)?; }
-        else { write!(f, "    ")? };
+        if let Some(t1_val) = &self.t1 { write!(f, "{} ", t1_val)?; }
+        else { write!(f, "###### ")? };
 
-        if let Some(T2_val) = &self.T2{ write!(f, "{} ", T2_val)?; }
-        else { write!(f, "    ")? };
+        if let Some(t2_val) = &self.t2{ write!(f, "{} ", t2_val)?; }
+        else { write!(f, "###### ")? };
 
         Ok(())
     }
@@ -197,7 +202,7 @@ struct OOOSim {
     rob: ROB,
     map_table: HashMap<VReg, PReg>,
     free_list: VecDeque<u32>,
-    res_stations: Vec<ResStation_entry>,
+    res_stations: Vec<ResStationEntry>,
     trace: Vec<Inst>,
     cycle: u32,
     trace_ind: usize,
@@ -208,7 +213,7 @@ impl OOOSim {
         let rob: ROB = ROB::new(max_rob_entries);
         let mut map_table: HashMap<VReg, PReg> = HashMap::new();
         let mut free_list: VecDeque<u32> = VecDeque::new();
-        let mut res_stations: Vec<ResStation_entry> = Vec::new();
+        let mut res_stations: Vec<ResStationEntry> = Vec::new();
         let cycle: u32 = 1;
         let trace_ind: usize = 0;
 
@@ -229,13 +234,13 @@ impl OOOSim {
         }
 
         for &(fut,fun,rsn) in res_stations_desc.iter() {
-            res_stations.push(ResStation_entry { fu_type: fut, fu_num: fun, rs_num: rsn, busy: false, T: None, T1: None, T2: None })
+            res_stations.push(ResStationEntry { fu_type: fut, fu_num: fun, rs_num: rsn, busy: false, t: None, t1: None, t2: None })
         }
 
         Self { rob, map_table, free_list, res_stations, trace, cycle, trace_ind }
     }
 
-    fn Retire(&mut self) {
+    fn retire(&mut self) {
         // find first instruction that has not retired,
         // if it's completed, retire it, otherwise,
         // it must be out of order so we will not retire anything.
@@ -244,7 +249,7 @@ impl OOOSim {
                 if inst.C != 0 {
                     inst.R = self.cycle;
                     self.rob.head += 1;
-                    if let Some(told) = inst.Told {
+                    if let Some(told) = inst.t_old {
                         if told != 0 {
                             self.free_list.push_back(told);
                         }
@@ -255,7 +260,7 @@ impl OOOSim {
         }
     }
 
-    fn Complete(&mut self) {
+    fn complete(&mut self) {
         // find first instruction that has executed, then complete it
         for inst in self.rob.entries.iter_mut() {
             if let Some(trace_inst) = self.trace.get(inst.inst_ind) {
@@ -263,7 +268,7 @@ impl OOOSim {
                     inst.C = self.cycle;
 
                     for preg in self.map_table.values_mut() {
-                        if let Some(t) = inst.T {
+                        if let Some(t) = inst.t {
                             if preg.num == t {
                                 preg.ready = true;
                             }
@@ -271,18 +276,18 @@ impl OOOSim {
                     }
 
                     for rs in self.res_stations.iter_mut() {
-                        if let Some(T1_val) = &mut rs.T1 {
-                            if let Some(t) = inst.T {
-                                if T1_val.num == t {
-                                    T1_val.ready = true;
+                        if let Some(t1_val) = &mut rs.t1 {
+                            if let Some(t) = inst.t {
+                                if t1_val.num == t {
+                                    t1_val.ready = true;
                                 }
                             }
                         }
 
-                        if let Some(T2_val) = &mut rs.T2 {
-                            if let Some(t) = inst.T {
-                                if T2_val.num == t {
-                                    T2_val.ready = true;
+                        if let Some(t2_val) = &mut rs.t2 {
+                            if let Some(t) = inst.t {
+                                if t2_val.num == t {
+                                    t2_val.ready = true;
                                 }
                             }
                         }
@@ -294,7 +299,7 @@ impl OOOSim {
         }
     }
 
-    fn Execute(&mut self) {
+    fn execute(&mut self) {
         let mut fu_busy: Vec<(u32,u32)> = Vec::new();
         // find all instructions waiting to execute, if the functional unit is not busy
         for inst in self.rob.entries.iter_mut() {
@@ -305,9 +310,9 @@ impl OOOSim {
                 if inst.X == 0 {
                     inst.X = self.cycle;
                     inst_rs.busy = false;
-                    inst_rs.T = None;
-                    inst_rs.T1 = None;
-                    inst_rs.T2 = None;
+                    inst_rs.t = None;
+                    inst_rs.t1 = None;
+                    inst_rs.t2 = None;
                 }
 
                 if inst_t.delay > 0 {
@@ -321,24 +326,23 @@ impl OOOSim {
         }
     }
 
-    fn Issue(&mut self) {
+    fn issue(&mut self) {
         for inst in self.rob.entries.iter_mut() {
             if inst.S == 0 {
                 let inst_rs = &self.res_stations[inst.rs_ind];
-                match (&inst_rs.T1,&inst_rs.T2) {
+                match (&inst_rs.t1,&inst_rs.t2) {
                     (None,_) | (_, None)=> { inst.S = self.cycle; return }
-                    (Some(T1_val),Some(T2_val)) => if (T1_val.ready && T2_val.ready) { inst.S = self.cycle; return },
-                    _ => (),
+                    (Some(t1_val),Some(t2_val)) => if t1_val.ready && t2_val.ready { inst.S = self.cycle; return },
                 }
             }
         }
     }
 
-    fn Dispatch(&mut self) {
+    fn dispatch(&mut self) {
         // Some fail-early style conditions
 
         // any more instructions to process?
-        if (self.trace_ind >= self.trace.len()) {
+        if self.trace_ind >= self.trace.len() {
             return
         }
 
@@ -351,19 +355,18 @@ impl OOOSim {
 
         let new_inst = &self.trace[self.trace_ind];
 
-        let T: Option<u32>;
-        if new_inst.rt == None {
+        let t: Option<u32> = if new_inst.rt == None {
             // if no target register, T is None (don't care)
-            T = None;
+            None
         } else {
             // structural hazard: free list empty, can't get a new preg
             // only a problem if new inst has a destination register
-            if self.free_list.len() == 0 {
+            if self.free_list.is_empty() {
                 return;
             }
             // not empty, so grab one off the top.
-            T = Some(self.free_list[0]);
-        }
+            Some(self.free_list[0])
+        };
 
         
 
@@ -374,13 +377,13 @@ impl OOOSim {
             if (rs.fu_type == new_inst.fu) && !rs.busy {
                 all_rss_busy = false;
                 rs.busy = true;
-                rs.T = T;
-                rs.T1 = match &new_inst.rs1 {
+                rs.t = t;
+                rs.t1 = match &new_inst.rs1 {
                     // this copies the value from the hashmap
                     Some(rs1_val) => { Some(self.map_table[rs1_val]) },
                     None => None
                 };
-                rs.T2 = match &new_inst.rs2 {
+                rs.t2 = match &new_inst.rs2 {
                     // this copies the value from the hashmap
                     Some(rs2_val) => { Some(self.map_table[rs2_val]) },
                     None => None
@@ -395,28 +398,28 @@ impl OOOSim {
             return
         }
 
-        let Told: Option<u32>;
-        let Tnew: Option<u32>;
+        let t_old: Option<u32>;
+        let t_new: Option<u32>;
         match &new_inst.rt {
             Some(rt_val) => {
                 self.free_list.pop_front();
-                Told = Some(self.map_table[rt_val].num);
-                Tnew = T;
+                t_old = Some(self.map_table[rt_val].num);
+                t_new = t;
 
                 // we expect T to be Some(X) because it is only None when new_inst.rt is None
                 // TODO: unsafe?
-                self.map_table.insert(*rt_val, PReg { num: T.unwrap(), ready: false });
+                self.map_table.insert(*rt_val, PReg { num: t.unwrap(), ready: false });
             }
             None => {
-                Told = None;
-                Tnew = None;
+                t_old = None;
+                t_new = None;
             }
         }
 
 
-        self.rob.entries.push(ROBEntry::new(self.trace_ind, rs_ind, Tnew, Told));
+        self.rob.entries.push(ROBEntry::new(self.trace_ind, rs_ind, t_new, t_old));
         self.rob.tail = match self.rob.tail {
-            Some(x) => Some(x + 1),
+            Some(i) => Some(i + 1),
             None => Some(0),
         };
 
@@ -424,26 +427,31 @@ impl OOOSim {
         
     }
 
-    fn Sim(&mut self, cycles: u32) {
+    fn sim(&mut self, cycles: u32) {
         let cycle_start = self.cycle;
         while self.cycle < cycle_start + cycles {
-            self.Retire();
-            self.Complete();
-            self.Execute();
-            self.Issue();
-            self.Dispatch();
+            self.retire();
+            self.complete();
+            self.execute();
+            self.issue();
+            self.dispatch();
 
             self.cycle += 1;
         }
-        println!("{}", self.rob);
+    }
+
+    fn print_state(self) {
+        println!("ROB:\n{}", self.rob);
+        println!("Reservation Statons:");
         for rs in &self.res_stations {
             println!("{}", rs);
         }
-        println!("vreg | preg");
+        println!("\nMap Table:\nvreg | preg");
         for (k,v) in &self.map_table {
-            println!("{} | {}", k, v);
+            println!("{:4} | {}", k.to_string(), v);
         }
-        println!("{:#?}", self.free_list);
+        
+        println!("\nFree List:\n{:?}", self.free_list);
     }
 
 }
@@ -477,6 +485,7 @@ fn main() {
     
     let mut sim : OOOSim = OOOSim::new(trace, 16, 8, res_stations_desc);
 
-    sim.Sim(1000);
+    sim.sim(10);
+    sim.print_state();
 }
 
