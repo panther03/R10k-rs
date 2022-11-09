@@ -406,9 +406,12 @@ impl OOOSim {
                 t_old = Some(self.map_table[rt_val].num);
                 t_new = t;
 
-                // we expect T to be Some(X) because it is only None when new_inst.rt is None
-                // TODO: unsafe?
-                self.map_table.insert(*rt_val, PReg { num: t.unwrap(), ready: false });
+                // should always be true because T is
+                // only None when new_inst.rt is.
+                if let Some(t) = t {
+                    // shadowing t as non-optional here
+                    self.map_table.insert(*rt_val, PReg { num: t, ready: false });
+                }
             }
             None => {
                 t_old = None;
@@ -442,7 +445,7 @@ impl OOOSim {
 
     fn print_state(self) {
         println!("ROB:\n{}", self.rob);
-        println!("Reservation Statons:");
+        println!("Reservation Stations:");
         for rs in &self.res_stations {
             println!("{}", rs);
         }
