@@ -83,7 +83,13 @@ class ResStationEntry:
     T2: Optional[PReg]
 
     def __str__(self) -> str:  # noqa: D105
-        return f"{self.fu_type} {'yes' if self.busy else 'no '} PR#{self.T} {self.T1} {self.T2}"
+        return "{0} {1} {2} {3} {4}".format(
+            self.fu_type,
+            'yes' if self.busy else 'no ',
+            f"PR#{self.T:02}" if self.T else "#####",
+            self.T1 if self.T1 else "######",
+            self.T2 if self.T2 else "######",
+        )
 
 
 class OOOSim:
@@ -315,5 +321,5 @@ if __name__ == "__main__":
             trace.append(_parse_inst(line))
 
     sim = OOOSim(trace, params, res_stations_desc)
-    sim.sim(1000)
+    sim.sim(10)
     sim.print_state()
