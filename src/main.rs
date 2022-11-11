@@ -471,7 +471,14 @@ fn main() {
     //     Inst::new(0, "r4", "r1", "r3", 1),
     // ];
 
-    let trace_iter = io::BufReader::new(File::open("r10k.trace").unwrap()).lines();
+    let trace_path = std::env::args().nth(1).expect("No trace path given.");
+
+    let trace_iter = io::BufReader::new(
+        File::open(&trace_path)
+        .unwrap_or_else(|_| panic!("Could not open trace file {}!", &trace_path))
+    )
+        .lines();
+
     let trace: Vec<Inst> = trace_iter
         .filter_map(Result::ok)
         .map(|x| Inst::from_trace_line(&x))
